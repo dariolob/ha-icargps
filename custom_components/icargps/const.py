@@ -12,6 +12,9 @@ EXCEPTIONS_URL: Final = (
     f"{BASE_URL}/Ajax/ExceptionMessageAjax.asmx/GetExceptionMessageByDeviceIDNew2017"
 )
 SEND_COMMAND_URL: Final = f"{BASE_URL}/Ajax/CommandQueueAjax.asmx/SendCommand"
+SEND_COMMAND_BY_PHONE_URL: Final = (
+    f"{BASE_URL}/Ajax/CommandQueueAjax.asmx/SendCommandByPhone"
+)
 GET_RESPONSE_URL: Final = f"{BASE_URL}/Ajax/CommandQueueAjax.asmx/GetResponse"
 
 # Config fields

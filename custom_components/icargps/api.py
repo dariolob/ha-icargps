@@ -22,7 +22,7 @@ from .const import (
     EXCEPTIONS_URL,
     GET_RESPONSE_URL,
     LOGIN_URL,
-    SEND_COMMAND_URL,
+    SEND_COMMAND_BY_PHONE_URL,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -58,7 +58,7 @@ def parse_d_payload(payload_text: str) -> dict[str, Any] | None:
     if isinstance(inner, str) and not inner:
         return None
     if not isinstance(inner, str):
-        # Some endpoints (SendCommand) return a bare integer in "d".
+        # Some endpoints (SendCommand*) return a bare integer in "d".
         return inner
     fixed = _PSEUDO_KEY_RE.sub(lambda m: f'{m.group(1)}"{m.group(2)}"{m.group(3)}', inner)
     try:
@@ -72,7 +72,8 @@ def _q(value: Any) -> str:
     return str(value).replace("\\", "\\\\").replace("'", "\\'")
 
 
-# Numeric result codes of SendCommand (from the platform's own JS).
+# Numeric result codes of SendCommand/SendCommandByPhone (from the
+# platform's own JS).
 SEND_RESULT_CODES: dict[int, str] = {
     -1: "Command null",
     1: "Target not exist",
@@ -250,24 +251,32 @@ class ICarApi:
     async def async_send_command(
         self,
         command: str,
-        params: str = "false",
+        params: str = "",
         wait_response: bool = True,
     ) -> SendResult:
-        """Send a GPRS command to the device via the platform queue.
+        """Send a command to the device via the platform's phone-command queue.
 
-        ``params`` carries the TrueOrFalse field (command parameters, e.g.
-        the shock level for SLXKZDXG).
+        The IK122T Pro (model 504) does NOT accept commands through the
+        plain SendCommand endpoint: the platform answers code 4 ("Command
+        has been saved") but never dispatches them (verified 2026-11-10:
+        such commands never even appear in the command queue, even with
+        the collar online). The SendCommandByPhone queue is the one the
+        mobile app uses: the command immediately appears in the queue as
+        sent (verified end-to-end with SLXKDM).
+
+        ``params`` carries the Phones field — e.g. the shock level for
+        SLXKZDXG, empty for SLXKDM (find).
         """
         if self.user_id is None or self.device_id is None:
             raise ICarAuthError("Not logged in")
         body = (
             f"{{SN:'{_q(self.sn)}',DeviceID:{self.device_id},"
-            f"CommandType:'{_q(command)}',TrueOrFalse:'{_q(params)}',"
-            f"Model:{self.model or 0},UserID:{self.user_id},"
+            f"CommandType:'{_q(command)}',Model:{self.model or 0},"
+            f"Phones:'{_q(params)}',UserID:{self.user_id},"
             f"Pass:'{_q(self._password)}',LoginType:2}}"
         )
         try:
-            result = await self._asmx_call_raw(SEND_COMMAND_URL, body)
+            result = await self._asmx_call_raw(SEND_COMMAND_BY_PHONE_URL, body)
             code = int(result)
         except (TypeError, ValueError) as exc:
             raise ICarApiError(f"Unexpected command result: {result!r}") from exc

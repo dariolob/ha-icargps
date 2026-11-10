@@ -48,7 +48,7 @@ SEND_COMMAND_SCHEMA = vol.Schema(
     {
         vol.Required("entity_id"): cv.entity_id,
         vol.Required("command"): cv.string,
-        vol.Optional("params", default="false"): cv.string,
+        vol.Optional("params", default=""): cv.string,
     }
 )
 

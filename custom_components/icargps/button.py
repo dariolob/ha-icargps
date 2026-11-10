@@ -109,7 +109,7 @@ class ICarFindButton(ICarBaseButton):
         self._attr_name = f"{coordinator.api.device_name} Find"
 
     async def async_press(self) -> None:
-        await self._async_send(CMD_FIND, "false")
+        await self._async_send(CMD_FIND, "")
 
 
 class ICarShockButton(ICarBaseButton):

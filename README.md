@@ -114,6 +114,9 @@ automation:
   `alarm`; other unmapped types become `unknown`.
 - The platform is HTTP-only; credentials travel in cleartext to icargps.net
   (same as the vendor's own web interface and app).
+- Commands are dispatched through the platform's `SendCommandByPhone` queue.
+  The plain `SendCommand` endpoint answers "saved" (code 4) for this model
+  but never delivers anything.
 - Geofences are configured in the vendor app; this integration only reads
   the resulting enter/exit events.
 
