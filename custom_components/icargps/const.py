@@ -11,11 +11,21 @@ DEVICES_URL: Final = f"{BASE_URL}/Ajax/DevicesAjax.asmx/GetDevicesByUserID"
 EXCEPTIONS_URL: Final = (
     f"{BASE_URL}/Ajax/ExceptionMessageAjax.asmx/GetExceptionMessageByDeviceIDNew2017"
 )
-SEND_COMMAND_URL: Final = f"{BASE_URL}/Ajax/CommandQueueAjax.asmx/SendCommand"
-SEND_COMMAND_BY_PHONE_URL: Final = (
-    f"{BASE_URL}/Ajax/CommandQueueAjax.asmx/SendCommandByPhone"
-)
-GET_RESPONSE_URL: Final = f"{BASE_URL}/Ajax/CommandQueueAjax.asmx/GetResponse"
+GETAPP_URL: Final = f"{BASE_URL}/getapp.aspx"
+
+# --- Command channel: the Yiwen "openapiv3" app API -------------------
+# The tenant's app-API endpoint is published by the platform itself at
+# /getapp.aspx (currently https://app2.gps18.com/openapiv3.asmx). This is
+# the API the "iCar GPS" mobile app uses and the ONLY channel that
+# actually delivers commands to the IK122T Pro (model 504) — verified
+# end-to-end on 2026-11-10 (SLXKDM ACKed "Success!" in ~1 s).
+OPENAPI_BASE_FALLBACK: Final = "https://app2.gps18.com/openapiv3.asmx/"
+
+# Framework-level app key accepted by the openapiv3 Login (shared by the
+# white-label apps of this platform; verified working for the ICAR tenant).
+APP_KEY: Final = "7DU2DJFDR8321"
+APP_LOGINAPP: Final = "icar gps"
+APP_LOGIN_TYPE: Final = 1  # 1 = login by IMEI/SN + device password
 
 # Config fields
 CONF_SN: Final = "sn"

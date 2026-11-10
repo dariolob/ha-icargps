@@ -1,9 +1,17 @@
 """API client for the icargps.net tracking platform.
 
-The platform is an ASP.NET WebForms application with ASMX JSON endpoints.
-Everything is session-gated: the session cookie is obtained with a classic
-ASP.NET postback login and the API calls must reproduce the browser's
-pseudo-JSON payloads (unquoted object keys) byte for byte.
+Two channels are used:
+
+* **Telemetry** — the platform's own web site (icargps.net, ASP.NET
+  WebForms + ASMX JSON endpoints, session-gated by a classic postback
+  login). Used for position, battery, status and alarm history.
+* **Commands** — the ``openapiv3.asmx`` app API (the same one the
+  "iCar GPS" Android app talks to). Discovered via the tenant's
+  ``/getapp.aspx`` endpoint (currently ``https://app2.gps18.com/openapiv3.asmx``).
+  The old web endpoints (SendCommand / SendCommandByPhone) accept
+  commands for the IK122T Pro (model 504) but never deliver them;
+  the app channel was verified end-to-end on 2026-11-10: a SLXKDM
+  ("find") command was ACKed by the collar in ~1 second.
 """
 
 from __future__ import annotations
@@ -18,11 +26,14 @@ from typing import Any
 from aiohttp import ClientError, ClientResponseError, ClientSession
 
 from .const import (
+    APP_LOGINAPP,
+    APP_KEY,
+    APP_LOGIN_TYPE,
     DEVICES_URL,
     EXCEPTIONS_URL,
-    GET_RESPONSE_URL,
+    GETAPP_URL,
     LOGIN_URL,
-    SEND_COMMAND_BY_PHONE_URL,
+    OPENAPI_BASE_FALLBACK,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -34,6 +45,7 @@ _MONITOR_RE = re.compile(r"location\.href='(/Monitor\.aspx[^']*)'")
 _USERID_RE = re.compile(r"map\.aspx\?id=(\d+)")
 _DEVICEID_RE = re.compile(r"deviceID=(\d+)")
 _PSEUDO_KEY_RE = re.compile(r"([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*:)")
+_ASMX_STRING_RE = re.compile(r"<string[^>]*>(.*)</string>", re.S)
 
 
 class ICarAuthError(Exception):
@@ -72,8 +84,8 @@ def _q(value: Any) -> str:
     return str(value).replace("\\", "\\\\").replace("'", "\\'")
 
 
-# Numeric result codes of SendCommand/SendCommandByPhone (from the
-# platform's own JS).
+# Legacy numeric result codes of the web SendCommand endpoint (kept for the
+# generic service; the app channel no longer uses them).
 SEND_RESULT_CODES: dict[int, str] = {
     -1: "Command null",
     1: "Target not exist",
@@ -92,15 +104,16 @@ class SendResult:
 
     command: str
     code: int
-    queued: bool = False  # accepted and delivered (command id > 10)
-    saved: bool = False  # accepted but queued for next device connection
+    queued: bool = False  # accepted by the platform command queue
+    saved: bool = False  # accepted for delivery on next device connection
     message: str = ""
     response_text: str | None = None
     command_id: int | None = None
 
 
 class ICarApi:
-    """Minimal client for the icargps.net web API."""
+    """Client for the icargps.net web API (telemetry) and the
+    Yiwen openapiv3 app API (commands)."""
 
     def __init__(
         self,
@@ -117,9 +130,13 @@ class ICarApi:
         self.device_id: int | None = None
         self.model: int | None = None
         self.device_name: str | None = None
+        # App (openapiv3) channel state
+        self._openapi_base: str | None = None
+        self._app_key2018: str | None = None
+        self.app_device_id: int | None = None
 
     # ------------------------------------------------------------------
-    # Low level helpers
+    # Web platform (telemetry) helpers
     # ------------------------------------------------------------------
 
     @property
@@ -135,17 +152,110 @@ class ICarApi:
             text = await resp.text()
         return parse_d_payload(text)
 
-    async def _asmx_call_raw(self, url: str, body: str) -> Any:
-        """POST and return the raw parsed outer JSON (for integer results)."""
-        async with self._session.post(url, data=body, headers=self._asmx_headers) as resp:
-            text = await resp.text()
+    # ------------------------------------------------------------------
+    # App (openapiv3) helpers
+    # ------------------------------------------------------------------
+
+    async def _openapi_url(self) -> str:
+        """Return the tenant's openapiv3 base URL, discovering it once."""
+        if self._openapi_base:
+            return self._openapi_base
+        base = OPENAPI_BASE_FALLBACK
         try:
-            return json.loads(text).get("d")
+            async with self._session.get(GETAPP_URL, timeout=10) as resp:
+                text = (await resp.text()).strip()
+            if text.startswith("http") and "openapiv3" in text:
+                base = text if text.endswith("/") else text + "/"
+                _LOGGER.debug("openapiv3 URL discovered via getapp.aspx: %s", base)
+            else:
+                _LOGGER.debug("getapp.aspx unexpected payload %r, using fallback", text[:80])
+        except (ClientError, asyncio.TimeoutError) as exc:
+            _LOGGER.debug("getapp.aspx discovery failed (%s), using fallback", exc)
+        self._openapi_base = base
+        return base
+
+    async def _openapi_post(self, method: str, fields: dict[str, str]) -> str:
+        """POST form-urlencoded fields to an openapiv3 method.
+
+        Returns the text inside the ASMX ``<string>`` envelope.
+        """
+        url = f"{await self._openapi_url()}{method}"
+        async with self._session.post(
+            url,
+            data=fields,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "User-Agent": "okhttp/3.12.0",
+            },
+        ) as resp:
+            text = await resp.text()
+            if resp.status != 200:
+                raise ICarApiError(f"openapiv3 {method} returned HTTP {resp.status}: {text[:120]}")
+        m = _ASMX_STRING_RE.search(text)
+        if not m:
+            raise ICarApiError(f"openapiv3 {method} returned unexpected envelope: {text[:120]}")
+        return m.group(1)
+
+    @staticmethod
+    def _parse_openapi_json(raw: str) -> dict[str, Any]:
+        try:
+            data = json.loads(raw)
         except json.JSONDecodeError as exc:
-            raise ICarApiError(f"Invalid response: {exc}") from exc
+            raise ICarApiError(f"openapiv3 returned invalid JSON: {raw[:120]}") from exc
+        if not isinstance(data, dict):
+            raise ICarApiError(f"openapiv3 returned unexpected payload: {raw[:120]}")
+        return data
+
+    async def async_app_login(self) -> None:
+        """Login against the openapiv3 app API (as the mobile app does).
+
+        Stores the per-login session key (``key2018``) and the app-side
+        device id.  Raises ICarAuthError on wrong credentials / key.
+        """
+        raw = await self._openapi_post(
+            "Login",
+            {
+                "Key": APP_KEY,
+                "Name": self.sn,
+                "Pass": self._password,
+                "LoginType": str(APP_LOGIN_TYPE),
+                "LoginAPP": APP_LOGINAPP,
+                "GMT": self.tz,
+            },
+        )
+        data = self._parse_openapi_json(raw)
+        state = str(data.get("state"))
+        if state != "0" or not (data.get("deviceInfo") or {}):
+            raise ICarAuthError(f"App-API login failed (state {state})")
+        info = data["deviceInfo"]
+        self._app_key2018 = info.get("key2018")
+        try:
+            self.app_device_id = int(info.get("deviceID"))
+        except (TypeError, ValueError) as exc:
+            raise ICarApiError("App-API login response has no deviceID") from exc
+        if not self._app_key2018:
+            raise ICarApiError("App-API login response has no key2018")
+        _LOGGER.debug("App-API login ok (app device id %s)", self.app_device_id)
+
+    async def async_get_tracking(self) -> dict[str, Any]:
+        """Fetch the live position via the openapiv3 GetTracking call."""
+        if not self._app_key2018:
+            await self.async_app_login()
+        raw = await self._openapi_post(
+            "GetTracking",
+            {
+                "Key": self._app_key2018 or "",
+                "DeviceID": str(self.app_device_id),
+                "MapType": "Google",
+                "TimeZones": self.tz,
+                "Model": str(self.model or 0),
+                "Language": "en_US",
+            },
+        )
+        return self._parse_openapi_json(raw)
 
     # ------------------------------------------------------------------
-    # Authentication
+    # Authentication (web platform)
     # ------------------------------------------------------------------
 
     async def async_login(self) -> None:
@@ -200,7 +310,7 @@ class ICarApi:
         self.device_name = dev.get("name") or f"ICAR {self.sn}"
 
     # ------------------------------------------------------------------
-    # Telemetry
+    # Telemetry (web platform)
     # ------------------------------------------------------------------
 
     async def async_get_device(self, first: bool = False) -> dict[str, Any]:
@@ -245,7 +355,7 @@ class ICarApi:
         return alarms, new_watermark
 
     # ------------------------------------------------------------------
-    # Commands
+    # Commands (openapiv3 app channel)
     # ------------------------------------------------------------------
 
     async def async_send_command(
@@ -254,64 +364,93 @@ class ICarApi:
         params: str = "",
         wait_response: bool = True,
     ) -> SendResult:
-        """Send a command to the device via the platform's phone-command queue.
+        """Send a command via the openapiv3 app channel (SendCommandByAPP).
 
-        The IK122T Pro (model 504) does NOT accept commands through the
-        plain SendCommand endpoint: the platform answers code 4 ("Command
-        has been saved") but never dispatches them (verified 2026-11-10:
-        such commands never even appear in the command queue, even with
-        the collar online). The SendCommandByPhone queue is the one the
-        mobile app uses: the command immediately appears in the queue as
-        sent (verified end-to-end with SLXKDM).
+        This is the only channel that actually delivers commands to the
+        IK122T Pro (model 504). Verified end-to-end on 2026-11-10 with
+        SLXKDM: queued with a numeric CommandID and ACKed ("Success!") by
+        the collar ~1 s later while online.
 
-        ``params`` carries the Phones field — e.g. the shock level for
-        SLXKZDXG, empty for SLXKDM (find).
+        ``params`` carries the command parameters — e.g. the shock level
+        for SLXKZDXG, empty for SLXKDM (find).
         """
-        if self.user_id is None or self.device_id is None:
-            raise ICarAuthError("Not logged in")
-        body = (
-            f"{{SN:'{_q(self.sn)}',DeviceID:{self.device_id},"
-            f"CommandType:'{_q(command)}',Model:{self.model or 0},"
-            f"Phones:'{_q(params)}',UserID:{self.user_id},"
-            f"Pass:'{_q(self._password)}',LoginType:2}}"
-        )
+        if self._app_key2018 is None or self.app_device_id is None:
+            await self.async_app_login()
+
         try:
-            result = await self._asmx_call_raw(SEND_COMMAND_BY_PHONE_URL, body)
-            code = int(result)
-        except (TypeError, ValueError) as exc:
-            raise ICarApiError(f"Unexpected command result: {result!r}") from exc
+            return await self._async_send_command_app(command, params, wait_response)
+        except _AppSessionExpired:
+            # key2018 is per-login and invalidated by any newer login;
+            # re-login once and retry.
+            _LOGGER.debug("App-API session expired, re-logging in")
+            await self.async_app_login()
+            return await self._async_send_command_app(command, params, wait_response)
 
-        if code > 10:
-            res = SendResult(
-                command=command,
-                code=code,
-                queued=True,
-                message="Command queued",
-                command_id=code,
-            )
-            if wait_response:
-                res.response_text = await self._wait_response(code)
-            return res
-
-        return SendResult(
-            command=command,
-            code=code,
-            saved=code in (4, 6),
-            message=SEND_RESULT_CODES.get(code, f"Platform returned code {code}"),
+    async def _async_send_command_app(
+        self, command: str, params: str, wait_response: bool
+    ) -> SendResult:
+        raw = await self._openapi_post(
+            "SendCommandByAPP",
+            {
+                "SN": self.sn,
+                "DeviceID": str(self.app_device_id),
+                "CommandType": command,
+                "Model": str(self.model or 0),
+                "Paramter": params,
+                "Key": self._app_key2018 or "",
+            },
         )
+        # Success: a bare numeric CommandID. Failure: a JSON state code.
+        raw_stripped = raw.strip()
+        try:
+            command_id = int(raw_stripped)
+        except ValueError:
+            data = self._parse_openapi_json(raw_stripped)
+            state = str(data.get("state", ""))
+            if state == "3001":
+                raise _AppSessionExpired()  # noqa: TRY300 (internal control flow)
+            raise ICarApiError(f"Command {command} rejected (state {state})")
 
-    async def _wait_response(self, command_id: int, attempts: int = 6, delay: float = 2.0) -> str | None:
-        """Poll GetResponse for the device ACK of a queued command."""
-        body = f"{{CommandID:{command_id},TimeZones:'{_q(self.tz)}'}}"
-        for _ in range(attempts):
+        result = SendResult(
+            command=command,
+            code=command_id,
+            queued=True,
+            message="Command queued via app API",
+            command_id=command_id,
+        )
+        if wait_response:
+            result.response_text = await self._wait_app_response(command_id)
+            if result.response_text:
+                result.message = f"Delivered: {result.response_text}"
+        return result
+
+    async def _wait_app_response(
+        self, command_id: int, attempts: int = 4, delay: float = 2.0
+    ) -> str | None:
+        """Poll openapiv3 GetResponse for the device ACK of a command."""
+        for attempt in range(attempts):
             try:
-                data = await self._asmx_call(GET_RESPONSE_URL, body)
-            except (ClientError, ICarApiError):
-                data = None
-            if data:
-                is_response = data.get("isResponse")
-                text = data.get("responseText")
-                if str(is_response) == "1":
-                    return text or "OK"
+                raw = await self._openapi_post(
+                    "GetResponse",
+                    {
+                        "CommandID": str(command_id),
+                        "TimeZones": self.tz,
+                        "Key": self._app_key2018 or "",
+                    },
+                )
+                data = self._parse_openapi_json(raw)
+                state = str(data.get("state", ""))
+                if state == "3001":
+                    # Either the session went stale or the command is too
+                    # old to be in the response table; stop polling.
+                    return None
+                if str(data.get("isResponse")) == "1":
+                    return data.get("responseMsg") or data.get("responseText") or "OK"
+            except (ClientError, ICarApiError) as exc:
+                _LOGGER.debug("GetResponse attempt %s failed: %s", attempt, exc)
             await asyncio.sleep(delay)
         return None
+
+
+class _AppSessionExpired(Exception):
+    """Internal: the openapiv3 session key (key2018) is no longer valid."""

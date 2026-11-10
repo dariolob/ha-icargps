@@ -8,8 +8,9 @@ backend the "ICAR" mobile app talks to.
 
 > ⚠️ **This is an unofficial integration.** The icargps.net API is undocumented
 > and was reverse-engineered from the web interface and the app traffic. It may
-> stop working at any time if the platform changes. All traffic goes over
-> **plain HTTP** — the platform does not offer HTTPS for these endpoints.
+> stop working at any time if the platform changes. Telemetry traffic goes over
+> **plain HTTP** (the web platform does not offer HTTPS); commands are sent to
+> the app API over HTTPS.
 
 ## What you get
 
@@ -112,11 +113,14 @@ automation:
   it only if you need it, start at level 1, and supervise your dog.
 - Alarm type `3` (vibration / bark indicator) is mapped generically to
   `alarm`; other unmapped types become `unknown`.
-- The platform is HTTP-only; credentials travel in cleartext to icargps.net
-  (same as the vendor's own web interface and app).
-- Commands are dispatched through the platform's `SendCommandByPhone` queue.
-  The plain `SendCommand` endpoint answers "saved" (code 4) for this model
-  but never delivers anything.
+- Telemetry (position/alarms) is read from the icargps.net web platform over
+  HTTP; credentials travel in cleartext (same as the vendor's own web
+  interface and app).
+- Commands are dispatched through the app API (`openapiv3.asmx`, the same
+  channel the mobile app uses), which was verified end-to-end: a `SLXKDM`
+  "find" command was ACKed `Success!` by the collar ~1 s after sending. The
+  web `SendCommand`/`SendCommandByPhone` endpoints accept commands for this
+  model but never deliver them, so they are not used.
 - Geofences are configured in the vendor app; this integration only reads
   the resulting enter/exit events.
 
