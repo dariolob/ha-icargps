@@ -86,9 +86,17 @@ class ICarTrackerEntity(CoordinatorEntity[ICarCoordinator], TrackerEntity):
         return {k: v for k, v in attrs.items() if v is not None}
 
     @property
-    def location_accuracy(self) -> int | None:
-        # The platform does not expose GPS accuracy.
-        return None
+    def location_accuracy(self) -> float:
+        """GPS accuracy in meters.
+
+        The platform does not expose accuracy, so return 0 (the base class
+        default). This must be a FLOAT, never None: since HA Core 2026.7 the
+        tracker base class passes location_accuracy to
+        zone.async_in_zones(), and None makes every state write raise
+        ``TypeError: '<' not supported between 'float' and 'NoneType'`` —
+        which kept this entity from ever appearing (v0.1.0-v0.1.5 bug).
+        """
+        return 0.0
 
 
 def _float(value: Any) -> float | None:
