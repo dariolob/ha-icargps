@@ -39,9 +39,16 @@ DEFAULT_TZ: Final = "1:00"
 DEFAULT_SCAN_INTERVAL: Final = 120
 DEFAULT_SHOCK_LEVEL: Final = 1
 
-# Commands (verified on the IK122T Pro, model 504)
-CMD_FIND: Final = "SLXKDM"  # "find dog": buzzer + light for ~1 minute
-CMD_SHOCK: Final = "SLXKZDXG"  # vibration + e-shock; level passed in params
+# Commands — the five app buttons of the ICAR app (IK122T Pro, model 504).
+# All verified live on 2026-11-10 by pressing the app buttons and reading
+# the platform command history (every command ACKed "Success!" by the
+# collar while awake):
+CMD_FIND: Final = "SLXKDM"  # "Sound to find dog": long tune + light ~1 min
+CMD_SOUND: Final = "SLXKLS"  # "Sound(rhythm) to train dog": punitive rhythm
+CMD_VIBRATION: Final = "SLXKBSD"  # "Vibration training"
+CMD_NIGHT_LIGHT: Final = "SLXKZXZD"  # "Night light to find dog"
+CMD_SHOCK: Final = "SLXKZDXG"  # "E-Shock to train dog"; level 1-9 in params
+# (levels 1, 2, 3 and 6 were ACKed "Success!" on 2026-11-10)
 
 # Alarm notification types observed on the IK122T Pro:
 # 1 = exit geofence, 2 = enter geofence (note = geofence name),

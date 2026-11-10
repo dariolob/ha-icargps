@@ -1,4 +1,4 @@
-"""Buttons for the ICAR collar (find / shock)."""
+"""Buttons for the ICAR collar (find / sound / vibration / light / shock)."""
 
 from __future__ import annotations
 
@@ -16,7 +16,10 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .api import ICarApiError, ICarAuthError, SendResult
 from .const import (
     CMD_FIND,
+    CMD_NIGHT_LIGHT,
     CMD_SHOCK,
+    CMD_SOUND,
+    CMD_VIBRATION,
     CONF_SHOCK_LEVEL,
     DEFAULT_SHOCK_LEVEL,
     DOMAIN,
@@ -36,6 +39,9 @@ async def async_setup_entry(
     async_add_entities(
         [
             ICarFindButton(coordinator, entry),
+            ICarSoundButton(coordinator, entry),
+            ICarVibrationButton(coordinator, entry),
+            ICarNightLightButton(coordinator, entry),
             ICarShockButton(coordinator, entry),
         ]
     )
@@ -97,28 +103,78 @@ class ICarBaseButton(CoordinatorEntity[ICarCoordinator], ButtonEntity):
             )
 
 
-class ICarFindButton(ICarBaseButton):
-    """Make the collar beep and flash for ~1 minute (SLXKDM)."""
+class _ICarSimpleButton(ICarBaseButton):
+    """A button that sends a fixed command with no parameters."""
 
-    _attr_icon = "mdi:bell-ring"
+    _cmd: str = ""
     _attr_has_entity_name = False
+
+    def __init__(self, coordinator: ICarCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator, entry)
+
+    async def async_press(self) -> None:
+        await self._async_send(self._cmd, "")
+
+
+class ICarFindButton(_ICarSimpleButton):
+    """Play the "find" tune and flash for ~1 minute (SLXKDM)."""
+
+    _cmd = CMD_FIND
+    _attr_icon = "mdi:bell-ring"
 
     def __init__(self, coordinator: ICarCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_unique_id = f"{coordinator.api.sn}_find"
         self._attr_name = f"{coordinator.api.device_name} Find"
 
-    async def async_press(self) -> None:
-        await self._async_send(CMD_FIND, "")
+
+class ICarSoundButton(_ICarSimpleButton):
+    """Play the short training rhythm (SLXKLS).
+
+    This is the "punitive" sound of the app (Sound rhythm to train dog),
+    not the long find tune.
+    """
+
+    _cmd = CMD_SOUND
+    _attr_icon = "mdi:volume-high"
+
+    def __init__(self, coordinator: ICarCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"{coordinator.api.sn}_sound"
+        self._attr_name = f"{coordinator.api.device_name} Sound"
+
+
+class ICarVibrationButton(_ICarSimpleButton):
+    """Vibrate once to train the dog (SLXKBSD)."""
+
+    _cmd = CMD_VIBRATION
+    _attr_icon = "mdi:vibrate"
+
+    def __init__(self, coordinator: ICarCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"{coordinator.api.sn}_vibration"
+        self._attr_name = f"{coordinator.api.device_name} Vibration"
+
+
+class ICarNightLightButton(_ICarSimpleButton):
+    """Turn on the night light to find the dog in the dark (SLXKZXZD)."""
+
+    _cmd = CMD_NIGHT_LIGHT
+    _attr_icon = "mdi:lightbulb-on"
+
+    def __init__(self, coordinator: ICarCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"{coordinator.api.sn}_night_light"
+        self._attr_name = f"{coordinator.api.device_name} Night Light"
 
 
 class ICarShockButton(ICarBaseButton):
-    """Vibration + e-shock (SLXKZDXG).
+    """Vibration + e-shock at the configured level (SLXKZDXG).
 
-    EXPERIMENTAL: the command name and the numeric level parameter were read
-    from the platform command history, but the level encoding has not been
-    verified end-to-end. The entity is disabled by default: enable it in the
-    entity registry only if you really need it, and start with level 1.
+    The command and the 1-9 level parameter are the same the mobile app
+    sends (verified: levels 1, 2, 3 and 6 ACKed "Success!" by the collar
+    on 2026-11-10). The entity is disabled by default because an
+    e-shock on a pet is something you should enable deliberately.
     """
 
     _attr_icon = "mdi:lightning-bolt"
@@ -134,7 +190,7 @@ class ICarShockButton(ICarBaseButton):
     def extra_state_attributes(self) -> dict[str, Any]:
         return {
             "level": self._entry.options.get(CONF_SHOCK_LEVEL, DEFAULT_SHOCK_LEVEL),
-            "warning": "Experimental: shock level encoding not verified",
+            "warning": "E-shock: enable deliberately and supervise your dog",
         }
 
     async def async_press(self) -> None:

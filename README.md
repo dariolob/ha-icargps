@@ -22,8 +22,15 @@ backend the "ICAR" mobile app talks to.
 | `<collar> Status` | `sensor` | `Stop` / `Moving` + stop duration |
 | `<collar> Last Alarm` | `sensor` | Most recent alarm (geofence exit/enter, vibration/bark) |
 | `<collar> Alarms` | `event` | One event per new alarm: `geofence_exit`, `geofence_enter`, `alarm` |
-| `<collar> Find` | `button` | Buzzer + flashing light for ~1 minute (`SLXKDM`) |
-| `<collar> Shock` | `button` | **Disabled by default, experimental.** Vibration + e-shock (`SLXKZDXG`) |
+| `<collar> Find` | `button` | Long "find" tune + light for ~1 minute (`SLXKDM`) |
+| `<collar> Sound` | `button` | Short training rhythm — the "punitive" sound of the app (`SLXKLS`) |
+| `<collar> Vibration` | `button` | One vibration to train the dog (`SLXKBSD`) |
+| `<collar> Night Light` | `button` | Flashing light to find the dog in the dark (`SLXKZXZD`) |
+| `<collar> Shock` | `button` | **Disabled by default.** Vibration + e-shock at the level set in the options (`SLXKZDXG`) |
+
+All five buttons mirror the commands of the ICAR app, and every one of them was
+verified live against the collar (each ACKed `Success!` by the device on
+2026-11-10; shock levels 1, 2, 3 and 6 confirmed).
 
 There is also a generic service `icargps.send_command` for any other platform
 command you discover.
@@ -91,7 +98,7 @@ automation:
 ```
 
 ```yaml
-# React to a command result (event fired after Find/Shock)
+# React to a command result (event fired after every button)
 automation:
   - alias: "Comando collare eseguito"
     trigger:
@@ -105,12 +112,25 @@ automation:
             {{ trigger.event.data.message }}
 ```
 
+## Command map (IK122T Pro, model 504)
+
+Mapped by pressing every button of the ICAR app while reading the platform
+command history (2026-11-10):
+
+| App button | CommandType | Parameter |
+| --- | --- | --- |
+| Sound to find dog | `SLXKDM` | — |
+| Sound(rhythm) to train dog | `SLXKLS` | — |
+| Vibration training | `SLXKBSD` | — |
+| Night light to find dog | `SLXKZXZD` | — |
+| E-Shock to train dog | `SLXKZDXG` | level 1–9 |
+
 ## Known limitations
 
-- **Shock button is experimental.** The command (`SLXKZDXG`) and the numeric
-  level were read from the platform command history, but the level encoding
-  has not been verified end-to-end. The entity is disabled by default; enable
-  it only if you need it, start at level 1, and supervise your dog.
+- **Shock button is disabled by default.** The command and level encoding are
+  now verified (the app slider sends the same `SLXKZDXG<n>` command), but an
+  e-shock on a pet should be enabled deliberately: start at level 1 and
+  supervise your dog.
 - Alarm type `3` (vibration / bark indicator) is mapped generically to
   `alarm`; other unmapped types become `unknown`.
 - Telemetry (position/alarms) is read from the icargps.net web platform over
