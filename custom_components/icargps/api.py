@@ -169,12 +169,16 @@ class ICarApi:
         }
         async with self._session.post(LOGIN_URL, data=form) as resp:
             html = await resp.text()
-        if "Faild2()" in html or "Faild3()" in html:
-            raise ICarAuthError("Wrong ID No./password")
-        if "Faild()" in html:
-            raise ICarAuthError("Login rejected by platform")
+        # Success = the page redirects to /Monitor.aspx. Do NOT test for
+        # "loginFaildN()": those strings appear in EVERY login response,
+        # including successful ones (the login page re-renders with its JS
+        # function definitions "function loginFaildN() { ... }"). Only the
+        # invocation "loginFaildN()" without the "function " prefix means
+        # the credentials were rejected.
         monitor = _MONITOR_RE.search(html)
-        if not monitor:
+        if monitor is None:
+            if re.search(r"(?<!function )loginFaild", html):
+                raise ICarAuthError("Wrong ID No./password")
             raise ICarApiError("Unexpected login response (no redirect found)")
 
         async with self._session.get(f"http://www.icargps.net{monitor.group(1)}") as resp:
