@@ -18,7 +18,11 @@ GETAPP_URL: Final = f"{BASE_URL}/getapp.aspx"
 # /getapp.aspx (currently https://app2.gps18.com/openapiv3.asmx). This is
 # the API the "iCar GPS" mobile app uses and the ONLY channel that
 # actually delivers commands to the IK122T Pro (model 504) — verified
-# end-to-end on 2026-11-10 (SLXKDM ACKed "Success!" in ~1 s).
+# live on 2026-11-10: SLXKLS with the exact app request body was
+# physically executed by the collar 3/3. The request must carry ONLY the
+# six app fields (Key, SN, DeviceID, CommandType, Model, Paramter);
+# extra fields make the platform queue + ACK the command without
+# delivering it, and the "Success!" ACK is not proof of execution.
 OPENAPI_BASE_FALLBACK: Final = "https://app2.gps18.com/openapiv3.asmx/"
 
 # Framework-level app key accepted by the openapiv3 Login (shared by the
@@ -40,15 +44,14 @@ DEFAULT_SCAN_INTERVAL: Final = 120
 DEFAULT_SHOCK_LEVEL: Final = 1
 
 # Commands — the five app buttons of the ICAR app (IK122T Pro, model 504).
-# All verified live on 2026-11-10 by pressing the app buttons and reading
-# the platform command history (every command ACKed "Success!" by the
-# collar while awake):
+# CommandType mapped on 2026-11-10 by pressing every app button while
+# reading the platform command history; physical execution verified for
+# SLXKLS (sound) with the exact app request body (3/3).
 CMD_FIND: Final = "SLXKDM"  # "Sound to find dog": long tune + light ~1 min
 CMD_SOUND: Final = "SLXKLS"  # "Sound(rhythm) to train dog": punitive rhythm
 CMD_VIBRATION: Final = "SLXKBSD"  # "Vibration training"
 CMD_NIGHT_LIGHT: Final = "SLXKZXZD"  # "Night light to find dog"
 CMD_SHOCK: Final = "SLXKZDXG"  # "E-Shock to train dog"; level 1-9 in params
-# (levels 1, 2, 3 and 6 were ACKed "Success!" on 2026-11-10)
 
 # Alarm notification types observed on the IK122T Pro:
 # 1 = exit geofence, 2 = enter geofence (note = geofence name),

@@ -90,7 +90,11 @@ class ICarBaseButton(CoordinatorEntity[ICarCoordinator], ButtonEntity):
             raise HomeAssistantError(f"Platform error: {exc}") from exc
         _fire_result(self.hass, self._entry, result)
         if result.queued:
-            _LOGGER.info("Command %s delivered (id=%s)", command, result.command_id)
+            # "Queued" means the platform accepted the command on its app
+            # channel (and may even ACK "Success!") — NOT that the collar
+            # physically executed it. The collar sleeps when the dog does
+            # not move and runs the command when it reconnects.
+            _LOGGER.info("Command %s sent via app channel (id=%s)", command, result.command_id)
         elif result.saved:
             _LOGGER.info(
                 "Command %s saved: the collar is sleeping and will run it when it "
@@ -172,9 +176,9 @@ class ICarShockButton(ICarBaseButton):
     """Vibration + e-shock at the configured level (SLXKZDXG).
 
     The command and the 1-9 level parameter are the same the mobile app
-    sends (verified: levels 1, 2, 3 and 6 ACKed "Success!" by the collar
-    on 2026-11-10). The entity is disabled by default because an
-    e-shock on a pet is something you should enable deliberately.
+    sends (the app slider sends SLXKZDXG with the chosen level). The
+    entity is disabled by default because an e-shock on a pet is
+    something you should enable deliberately.
     """
 
     _attr_icon = "mdi:lightning-bolt"

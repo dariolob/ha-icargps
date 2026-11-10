@@ -28,16 +28,16 @@ backend the "ICAR" mobile app talks to.
 | `<collar> Night Light` | `button` | Flashing light to find the dog in the dark (`SLXKZXZD`) |
 | `<collar> Shock` | `button` | **Disabled by default.** Vibration + e-shock at the level set in the options (`SLXKZDXG`) |
 
-All five buttons mirror the commands of the ICAR app, and every one of them was
-verified live against the collar (each ACKed `Success!` by the device on
-2026-11-10; shock levels 1, 2, 3 and 6 confirmed).
+All five buttons send the same `CommandType` the ICAR app sends for the same
+button (mapped by pressing each app button while reading the platform command
+history on 2026-11-10). Physical execution was verified live for the sound
+command (`SLXKLS`) with the exact request body used by this integration.
 
 There is also a generic service `icargps.send_command` for any other platform
 command you discover.
 
 The collar sleeps when the dog is not moving (G-sensor wake), so while it is
-asleep commands are queued ("saved") and executed when it wakes up and
-reconnects.
+asleep commands are queued and executed when it wakes up and reconnects.
 
 ## Installation
 
@@ -46,7 +46,8 @@ reconnects.
 1. HACS → ⋮ → **Custom repositories**
 2. Add `https://github.com/dariolob/ha-icargps` with category **Integration**
 3. Search "iCar GPS" and install it
-4. Restart Home Assistant
+4. **Restart Home Assistant** (a full restart — reloading the integration is
+   not enough to pick up new integration code)
 
 ### Manual
 
@@ -125,10 +126,27 @@ command history (2026-11-10):
 | Night light to find dog | `SLXKZXZD` | — |
 | E-Shock to train dog | `SLXKZDXG` | level 1–9 |
 
+## Troubleshooting commands
+
+- **A button "works" (no error) but the collar does nothing?** The platform
+  queues commands and reports `Success!` ACKs even for commands it never
+  delivers. The app channel (`openapiv3.asmx` → `SendCommandByAPP`) is the
+  only one that actually reaches the IK122T Pro, and its request must carry
+  **exactly** the six fields the app sends: `Key, SN, DeviceID, CommandType,
+  Model, Paramter`. Any extra field makes the platform accept the command and
+  ACK it while silently never delivering it. This integration sends exactly
+  those six fields — but make sure you are on the version you think you are
+  on (HACS → iCar GPS → check the installed version), and remember that a
+  **full Home Assistant restart** is required after an update.
+- The collar sleeps when the dog is stationary (G-sensor wake). While it is
+  asleep, commands wait in the queue until it wakes up and reconnects.
+- The `Success!` ACK shown in the `icargps_command_result` event is the
+  platform's claim, not proof that the collar beeped/vibrated.
+
 ## Known limitations
 
 - **Shock button is disabled by default.** The command and level encoding are
-  now verified (the app slider sends the same `SLXKZDXG<n>` command), but an
+  now verified (the app slider sends the same `SLXKZDXG` command), but an
   e-shock on a pet should be enabled deliberately: start at level 1 and
   supervise your dog.
 - Alarm type `3` (vibration / bark indicator) is mapped generically to
@@ -137,10 +155,10 @@ command history (2026-11-10):
   HTTP; credentials travel in cleartext (same as the vendor's own web
   interface and app).
 - Commands are dispatched through the app API (`openapiv3.asmx`, the same
-  channel the mobile app uses), which was verified end-to-end: a `SLXKDM`
-  "find" command was ACKed `Success!` by the collar ~1 s after sending. The
-  web `SendCommand`/`SendCommandByPhone` endpoints accept commands for this
-  model but never deliver them, so they are not used.
+  channel the mobile app uses). Verified live: a `SLXKLS` sound command sent
+  with the exact app request body was executed by the collar 3/3 on
+  2026-11-10. The web `SendCommand`/`SendCommandByPhone` endpoints accept
+  commands for this model but never deliver them, so they are not used.
 - Geofences are configured in the vendor app; this integration only reads
   the resulting enter/exit events.
 

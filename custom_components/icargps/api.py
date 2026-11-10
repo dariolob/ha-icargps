@@ -9,9 +9,17 @@ Two channels are used:
   "iCar GPS" Android app talks to). Discovered via the tenant's
   ``/getapp.aspx`` endpoint (currently ``https://app2.gps18.com/openapiv3.asmx``).
   The old web endpoints (SendCommand / SendCommandByPhone) accept
-  commands for the IK122T Pro (model 504) but never deliver them;
-  the app channel was verified end-to-end on 2026-11-10: a SLXKDM
-  ("find") command was ACKed by the collar in ~1 second.
+  commands for the IK122T Pro (model 504) but never deliver them.
+
+  ⚠️ Delivery contract (verified live on 2026-11-10, SLXKLS physically
+  executed by the collar 3/3): the ``SendCommandByAPP`` request must
+  contain EXACTLY the six form fields the app sends — ``Key``, ``SN``,
+  ``DeviceID``, ``CommandType``, ``Model``, ``Paramter``. Adding ANY
+  extra field (e.g. ``Language`` or ``Key2018``) makes the platform
+  queue the command and even ACK it ("Success!") while NEVER delivering
+  it to the collar. The "Success!" ACK itself is not proof of execution
+  either: the server can fabricate it for undelivered commands. Only
+  physical execution on the device counts.
 """
 
 from __future__ import annotations
@@ -209,7 +217,7 @@ class ICarApi:
     async def async_app_login(self) -> None:
         """Login against the openapiv3 app API (as the mobile app does).
 
-        Stores the per-login session key (``key2018``) and the app-side
+        Stores the per-device session key (``key2018``) and the app-side
         device id.  Raises ICarAuthError on wrong credentials / key.
         """
         raw = await self._openapi_post(
@@ -234,7 +242,7 @@ class ICarApi:
         except (TypeError, ValueError) as exc:
             raise ICarApiError("App-API login response has no deviceID") from exc
         if not self._app_key2018:
-            raise ICarApiError("App-API login response has no key2018")
+            raise ICarAuthError("App-API login response has no key2018")
         _LOGGER.debug("App-API login ok (app device id %s)", self.app_device_id)
 
     async def async_get_tracking(self) -> dict[str, Any]:
@@ -366,13 +374,17 @@ class ICarApi:
     ) -> SendResult:
         """Send a command via the openapiv3 app channel (SendCommandByAPP).
 
-        This is the only channel that actually delivers commands to the
-        IK122T Pro (model 504). Verified end-to-end on 2026-11-10 with
-        SLXKDM: queued with a numeric CommandID and ACKed ("Success!") by
-        the collar ~1 s later while online.
+        This is the only channel that delivers commands to the IK122T Pro
+        (model 504). Verified live on 2026-11-10: SLXKLS with this exact
+        request was physically executed by the collar 3/3.
+
+        The request body must contain ONLY the six fields the app sends
+        (``Key, SN, DeviceID, CommandType, Model, Paramter``): any extra
+        field makes the platform queue and even ACK the command without
+        delivering it — see the module docstring.
 
         ``params`` carries the command parameters — e.g. the shock level
-        for SLXKZDXG, empty for SLXKDM (find).
+        for SLXKZDXG, empty for SLXKLS (sound).
         """
         if self._app_key2018 is None or self.app_device_id is None:
             await self.async_app_login()
@@ -421,13 +433,21 @@ class ICarApi:
         if wait_response:
             result.response_text = await self._wait_app_response(command_id)
             if result.response_text:
-                result.message = f"Delivered: {result.response_text}"
+                # NOTE: this ACK ("Success!") is the platform's claim that
+                # the command was delivered — it is NOT proof of physical
+                # execution (the server can fabricate it for commands it
+                # never delivered).
+                result.message = f"Platform ACK: {result.response_text}"
         return result
 
     async def _wait_app_response(
         self, command_id: int, attempts: int = 4, delay: float = 2.0
     ) -> str | None:
-        """Poll openapiv3 GetResponse for the device ACK of a command."""
+        """Poll openapiv3 GetResponse for the device ACK of a command.
+
+        The ACK is advisory only: the platform can report "Success!" for
+        commands it never actually delivered to the collar.
+        """
         for attempt in range(attempts):
             try:
                 raw = await self._openapi_post(
