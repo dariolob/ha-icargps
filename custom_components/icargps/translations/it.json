@@ -1,0 +1,35 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "iCar GPS (icargps.net)",
+        "description": "Collega un localizzatore GPS ICAR tramite la piattaforma web icargps.net. Usa l'SN (numero di serie) e la password che usi nell'app ICAR.",
+        "data": {
+          "sn": "SN del dispositivo (ID No.)",
+          "password": "Password",
+          "tz": "Fuso orario (es. 1:00 per UTC+1, 2:00 per UTC+2)",
+          "scan_interval": "Intervallo di aggiornamento (secondi)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Impossibile connettersi a icargps.net",
+      "invalid_auth": "SN o password non validi"
+    },
+    "abort": {
+      "already_configured": "Questo SN è già configurato"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Opzioni iCar GPS",
+        "data": {
+          "scan_interval": "Intervallo di aggiornamento (secondi)",
+          "tz": "Fuso orario (es. 1:00 per UTC+1, 2:00 per UTC+2)",
+          "shock_level": "Livello shock (1-9, SPERIMENTALE)"
+        }
+      }
+    }
+  }
+}

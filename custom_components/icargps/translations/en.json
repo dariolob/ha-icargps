@@ -1,0 +1,35 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "iCar GPS (icargps.net)",
+        "description": "Connect to an ICAR GPS tracker via the icargps.net web platform. Use the SN (serial number) and password you use in the ICAR app.",
+        "data": {
+          "sn": "Device SN (ID No.)",
+          "password": "Password",
+          "tz": "Timezone offset (e.g. 1:00 for UTC+1, 2:00 for UTC+2)",
+          "scan_interval": "Polling interval (seconds)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to icargps.net",
+      "invalid_auth": "Invalid SN or password"
+    },
+    "abort": {
+      "already_configured": "This device SN is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "iCar GPS options",
+        "data": {
+          "scan_interval": "Polling interval (seconds)",
+          "tz": "Timezone offset (e.g. 1:00 for UTC+1, 2:00 for UTC+2)",
+          "shock_level": "Shock level (1-9, EXPERIMENTAL)"
+        }
+      }
+    }
+  }
+}
