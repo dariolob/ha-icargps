@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import timedelta
 from typing import Any
 
+from aiohttp import ClientError
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall, callback
@@ -69,6 +71,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await api.async_login()
     except ICarAuthError as exc:
         raise ConfigEntryAuthFailed(f"Login failed: {exc}") from exc
+    except (ClientError, asyncio.TimeoutError) as exc:
+        # Transient network hiccup (icargps.net unreachable, DNS failure,
+        # connect timeout): raise ConfigEntryNotReady so Home Assistant
+        # retries automatically with backoff, instead of letting the raw
+        # aiohttp exception leave the entry in SETUP_ERROR (which requires
+        # a manual reload).
+        raise ConfigEntryNotReady(f"Cannot reach icargps.net: {exc}") from exc
     except ICarApiError as exc:
         raise ConfigEntryNotReady(f"Platform error: {exc}") from exc
 
